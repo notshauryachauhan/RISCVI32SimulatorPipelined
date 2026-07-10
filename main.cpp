@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <cstdint>
+#include <unordered_map>
 
 #include "include/Memory.h"
 #include "include/ALU.h"
@@ -11,15 +12,27 @@
 
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <program_file>" << std::endl;
+    if (argc < 3) {
+        std::cerr << "Usage: " << argv[0] << " <program_file>" << " <mode> (Pipelined/SingleCycle)" << std::endl;
         return 1;
     }
 
+    std::unordered_map<std::string, RunMode> modeMap = {
+        {"SingleCycle", RunMode::SingleCycle},
+        {"Pipelined", RunMode::Pipelined}
+    };
+
+    if (modeMap.find(argv[2]) == modeMap.end()) {
+        std::cerr << "Invalid mode. Please choose either 'SingleCycle' or 'Pipelined'." <<std::endl;
+        return 1;
+    }
+    
+    RunMode runmode  = modeMap.at(argv[2]);
+
     CPU cpu;
     cpu.loadProgram(argv[1]);
-    cpu.run();
-    cpu.printStats();
+    cpu.startSimulation(runmode);
+    // cpu.printStats();
 
 
     /* For testing purposes, you can use this main function to load a program and print the instructions and their decoded forms.
@@ -60,6 +73,7 @@ int main(int argc, char* argv[]) {
     regFile.dump();
 
     */
+
     return 0;
 }
 

@@ -1,5 +1,6 @@
 #include "../include/CPU.h"
 #include "../include/Opcodes.h"
+#include "../include/PipelineRegs.h"
 
 #include <stdexcept>
 #include <iostream>
@@ -15,9 +16,33 @@ void CPU::loadProgram(const std::string& filename) {
     cycleCount = 0;
     halted = false;
     regFile.write(2, 65536); // initialize sp to top of memory
+    ifid.reset();
+    idex.reset();
+    exmem.reset();
+    memwb.reset();
 }
 
-void CPU::run() {
+void CPU::startSimulation(RunMode mode){
+    switch(mode){
+        case RunMode::Pipelined:
+            runPipelined();
+            break;
+        case RunMode::SingleCycle:
+            runSingleCycle();
+            break;
+        default:
+            std::cout << "Input does not belong to available modes, defaulting to Single Cycle" << std::endl;
+            runSingleCycle();
+            break;
+    }
+
+}
+
+void CPU::runPipelined(){
+    std::cout << "in wrok lil bro" << std::endl;
+}
+
+void CPU::runSingleCycle() {
     while (!halted && pc < memory.instructionCount() * 4 && cycleCount < 1000000) {
         uint32_t if_raw_instr = memory.fetchInstruction(pc);
         Instruction id_decoded = decoder.decode(if_raw_instr);

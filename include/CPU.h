@@ -7,13 +7,19 @@
 #include "RegisterFile.h"
 #include "Memory.h"
 #include "Opcodes.h"
+#include "PipelineRegs.h"
+
+enum class RunMode {
+    SingleCycle,
+    Pipelined
+};
 
 class CPU {
 
     public:
         CPU();
         void loadProgram(const std::string& filename);
-        void run();
+        void startSimulation(RunMode mode);
         void printStats();
 
     private:
@@ -22,11 +28,19 @@ class CPU {
         RegisterFile regFile;
         Memory memory;
 
+        IFID ifid;
+        IDEX idex;
+        EXMEM exmem;
+        MEMWB memwb;
+
         uint32_t pc {0};
         uint64_t cycleCount {0};
 
         bool halted;
 
         ALUOp MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode);
+
+        void runSingleCycle();
+        void runPipelined();
 
 };
