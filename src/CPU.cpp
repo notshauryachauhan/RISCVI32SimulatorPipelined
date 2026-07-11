@@ -2,6 +2,7 @@
 #include "../include/Opcodes.h"
 #include "../include/PipelineRegs.h"
 #include "../include/HazardDetector.h"
+#include "../include/ForwardingUnit.h"
 
 #include <stdexcept>
 #include <iostream>
@@ -347,8 +348,10 @@ void CPU::stageEX(){
         return;
     }
 
-    uint32_t rs1_val = idex.rs1_val;
-    uint32_t rs2_val = idex.rs2_val;
+    ForwardedData fwd = forwardingUnit.forward(idex, exmem, memwb);
+
+    uint32_t rs1_val = fwd.rs1_val;
+    uint32_t rs2_val = fwd.rs2_val;
 
     uint32_t alu_a = rs1_val;
     uint32_t alu_b = rs2_val;

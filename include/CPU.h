@@ -9,6 +9,7 @@
 #include "Opcodes.h"
 #include "PipelineRegs.h"
 #include "HazardDetector.h"
+#include "ForwardingUnit.h"
 
 enum class RunMode {
     SingleCycle,
@@ -53,4 +54,5 @@ class CPU {
         bool stalled;
 
         HazardDetector hazarddetector;
+        ForwardingUnit forwardingUnit;
 };
