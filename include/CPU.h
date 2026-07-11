@@ -43,4 +43,13 @@ class CPU {
         void runSingleCycle();
         void runPipelined();
 
+        bool flushed;
+        bool stalled;
+
+        void stageIF();
+        void stageID();
+        void stageEX();
+        void stageMEM();
+        void stageWB();
+
 };

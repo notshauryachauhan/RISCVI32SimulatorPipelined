@@ -39,8 +39,25 @@ void CPU::startSimulation(RunMode mode){
 }
 
 void CPU::runPipelined(){
-    std::cout << "in wrok lil bro" << std::endl;
+    while ((!halted || ifid.valid || idex.valid || exmem.valid || memwb.valid) && cycleCount < 1000000){
+        stageWB();
+        stageMEM();
+        stageEX();
+        if (exmem.valid && exmem.branch_taken) {
+            pc = exmem.pc_next;
+            ifid.valid = false;
+            idex.valid = false;
+        }
+        stageID();
+        stageIF();
+        cycleCount++;
+    }
 }
+
+
+//=============================================================================================================
+// Single Cycle Implementation
+//=============================================================================================================
 
 void CPU::runSingleCycle() {
     while (!halted && pc < memory.instructionCount() * 4 && cycleCount < 1000000) {
@@ -173,6 +190,8 @@ void CPU::runSingleCycle() {
     }
 }
 
+//======================================================================================================================
+
 void CPU::printStats() {
     regFile.dump();
     std::cout << "Final PC: 0x" << std::hex << pc << std::endl;
@@ -252,4 +271,172 @@ ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
 
 
     throw std::invalid_argument("Unsupported instruction type for ALU mapping");
+}
+
+//======================================================================================================================
+
+
+//======================================================================================================================
+// Pipelined Implementation
+//======================================================================================================================
+
+void CPU::stageIF(){
+    if (halted) {
+        ifid.valid = false;
+        return;
+    }
+
+    if (halted || pc >= memory.instructionCount() * 4) {
+        ifid.valid = false;
+        return;
+    }
+    ifid.instruction = memory.fetchInstruction(pc);
+    ifid.pc = pc;
+    ifid.valid = true;
+
+    pc += 4;
+}
+
+void CPU::stageID(){
+    if(!ifid.valid) {
+        idex.valid = false;
+        return;
+    }
+
+    idex.decoded = decoder.decode(ifid.instruction);
+    idex.rs1_val = regFile.read(idex.decoded.rs1);
+    idex.rs2_val = regFile.read(idex.decoded.rs2);
+    idex.pc = ifid.pc;
+    idex.valid = true;
+
+    if (idex.decoded.type == InstrType::SYSTEM && 
+        idex.decoded.funct3 == 0x0 && 
+        idex.decoded.imm == 0x000) {
+        halted = true;
+        ifid.valid = false;
+    }
+}
+
+void CPU::stageEX(){
+    if(!idex.valid){
+        exmem.valid = false;
+        return;
+    }
+
+    uint32_t rs1_val = idex.rs1_val;
+    uint32_t rs2_val = idex.rs2_val;
+
+    // do forwarding stuff
+
+    // TODO: forwarding
+    // if (exmem.reg_write && exmem.rd != 0 && exmem.rd == idex.decoded.rs1)
+    //     rs1_val = exmem.alu_result;
+    // if (memwb.reg_write && memwb.rd != 0 && memwb.rd == idex.decoded.rs1)
+    //     rs1_val = memwb.result;
+
+    // TODO: forwarding
+    // if (exmem.reg_write && exmem.rd != 0 && exmem.rd == idex.decoded.rs2)
+    //     rs2_val = exmem.alu_result;
+    // if (memwb.reg_write && memwb.rd != 0 && memwb.rd == idex.decoded.rs2)
+    //     rs2_val = memwb.result;
+
+    uint32_t alu_a = rs1_val;
+    uint32_t alu_b = rs2_val;
+
+    uint32_t op = idex.decoded.opcode;
+    if (op == Opcodes::OP_IMM || 
+        op == Opcodes::LOAD   || 
+        op == Opcodes::STORE  || 
+        op == Opcodes::JALR) {
+        alu_b = static_cast<uint32_t>(idex.decoded.imm);
+    }
+
+    if (op == Opcodes::AUIPC) {
+        alu_a = idex.pc;
+        alu_b = static_cast<uint32_t>(idex.decoded.imm);
+    }
+
+    if (op == Opcodes::JAL) {
+        alu_a = idex.pc;
+        alu_b = static_cast<uint32_t>(idex.decoded.imm);
+    }
+
+    // added onlyfor testing std::cout << "stageEX: opcode=0x" << std::hex << op << std::endl;
+
+    if (op == Opcodes::SYSTEM) {
+        exmem.valid = false;  // treat as bubble — nothing to execute
+        return;
+    }
+
+    ALUOp aluop = MapToALU(idex.decoded.funct3, idex.decoded.funct7, op);
+    ALUResult alu_result = alu.execute(aluop, alu_a, alu_b);
+
+    bool branch_taken = false;
+    uint32_t pc_next = idex.pc + 4;
+
+    if (op == Opcodes::BRANCH) {
+        uint32_t r1 = rs1_val;
+        uint32_t r2 = rs2_val;
+        uint32_t branch_target = idex.pc + static_cast<uint32_t>(idex.decoded.imm);
+
+        switch (idex.decoded.funct3) {
+            case 0x0: branch_taken = (r1 == r2); break;                                              // BEQ
+            case 0x1: branch_taken = (r1 != r2); break;                                              // BNE
+            case 0x4: branch_taken = (static_cast<int32_t>(r1) <  static_cast<int32_t>(r2)); break; // BLT
+            case 0x5: branch_taken = (static_cast<int32_t>(r1) >= static_cast<int32_t>(r2)); break; // BGE
+            case 0x6: branch_taken = (r1 <  r2); break;                                              // BLTU
+            case 0x7: branch_taken = (r1 >= r2); break;                                              // BGEU
+        }
+
+        if (branch_taken) pc_next = branch_target;
+    }
+
+    if (op == Opcodes::JAL)  pc_next = alu_result.value;
+    if (op == Opcodes::JALR) pc_next = alu_result.value & ~1u;
+
+    exmem.alu_result   = alu_result.value;
+    exmem.rs2_val      = rs2_val;           // needed by SW in MEM stage
+    exmem.rd           = idex.decoded.rd;
+    exmem.pc_next      = pc_next;
+    exmem.branch_taken = branch_taken || (op == Opcodes::JAL) || (op == Opcodes::JALR);
+    exmem.mem_read     = (op == Opcodes::LOAD);
+    exmem.mem_write    = (op == Opcodes::STORE);
+
+    exmem.reg_write    = (op != Opcodes::STORE && 
+                          op != Opcodes::BRANCH && 
+                          op != Opcodes::SYSTEM);
+
+    exmem.valid        = true;
+
+    if (op == Opcodes::JAL || op == Opcodes::JALR) {
+        exmem.alu_result = idex.pc + 4;
+    }
+
+    if (op == Opcodes::LUI) {
+        exmem.alu_result = static_cast<uint32_t>(idex.decoded.imm);
+        exmem.reg_write  = true;
+    }
+}
+
+
+void CPU::stageMEM(){
+    if (!exmem.valid){
+        memwb.valid = false;
+        return;
+    }
+
+    if(exmem.mem_read) memwb.result = memory.loadWord(exmem.alu_result);
+    else memwb.result = exmem.alu_result;
+
+    if(exmem.mem_write) memory.storeWord(exmem.alu_result, exmem.rs2_val);
+
+    memwb.rd = exmem.rd;
+
+    memwb.reg_write = exmem.reg_write;
+
+    memwb.valid = true;
+}
+
+void CPU::stageWB(){
+    if (memwb.valid && memwb.reg_write) regFile.write(memwb.rd, memwb.result);
 }

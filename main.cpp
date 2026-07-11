@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
     CPU cpu;
     cpu.loadProgram(argv[1]);
     cpu.startSimulation(runmode);
-    // cpu.printStats();
+    cpu.printStats();
 
 
     /* For testing purposes, you can use this main function to load a program and print the instructions and their decoded forms.
