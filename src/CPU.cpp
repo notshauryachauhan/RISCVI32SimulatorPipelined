@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <string>
 
-CPU::CPU() : alu(), decoder(), regFile(), memory(), pc(0), cycleCount(0), halted(false) {}
+CPU::CPU() : alu(), decoder(), regFile(), memory(), pc(0), cycleCount(0), halted(false), stalled(false) {}
 
 void CPU::loadProgram(const std::string& filename) {
     memory.loadProgram(filename);
@@ -52,6 +52,7 @@ void CPU::runPipelined(){
             pc = exmem.pc_next;
             idex.valid= false;
             ifid.valid = false;
+            exmem.branch_taken = false;
             stalled = false;
         } else if (signals.stall){
             stalled = true;
@@ -443,7 +444,7 @@ void CPU::stageMEM(){
         } else if (exmem.funct3 == 0x0) {
             memwb.result = static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(exmem.alu_result)));
         } else {
-            memwb.result = exmem.alu_result;
+            throw std::runtime_error("LH (funct3=0x1), LHU (funct3=0x5), LBU (funct3=0x4) are unsupported");
         }
     }
 
@@ -452,6 +453,8 @@ void CPU::stageMEM(){
             memory.storeWord(exmem.alu_result, exmem.rs2_val);
         } else if (exmem.funct3 == 0x0) { // SB          
             memory.storeByte(exmem.alu_result, static_cast<uint8_t>(exmem.rs2_val & 0xFF));
+        } else {
+            throw std::runtime_error("SH is unsupported");
         }
     }
 
