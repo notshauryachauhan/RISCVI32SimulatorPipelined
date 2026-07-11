@@ -8,6 +8,7 @@
 #include "Memory.h"
 #include "Opcodes.h"
 #include "PipelineRegs.h"
+#include "HazardDetector.h"
 
 enum class RunMode {
     SingleCycle,
@@ -48,4 +49,8 @@ class CPU {
         void stageEX();
         void stageMEM();
         void stageWB();
+
+        bool stalled;
+
+        HazardDetector hazarddetector;
 };

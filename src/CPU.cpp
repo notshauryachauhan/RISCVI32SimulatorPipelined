@@ -44,10 +44,18 @@ void CPU::runPipelined(){
         stageWB();
         stageMEM();
         stageEX();
-        if (exmem.valid && exmem.branch_taken) {
+
+        HazardSignals signals = hazarddetector.detect(ifid, idex, exmem);
+
+        if (signals.flush) {
             pc = exmem.pc_next;
+            idex.valid= false;
             ifid.valid = false;
-            idex.valid = false;
+            stalled = false;
+        } else if (signals.stall){
+            stalled = true;
+        } else {
+            stalled = false;
         }
         stageID();
         stageIF();
@@ -283,6 +291,10 @@ ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
 
 void CPU::stageIF(){
 
+    if (stalled){
+        return;
+    }
+
     if (halted || pc >= memory.instructionCount() * 4) {
         ifid.valid = false;
         return;
@@ -298,6 +310,11 @@ void CPU::stageIF(){
 
 void CPU::stageID(){
     if(!ifid.valid) {
+        idex.valid = false;
+        return;
+    }
+
+    if(stalled){
         idex.valid = false;
         return;
     }
@@ -325,22 +342,13 @@ void CPU::stageEX(){
         return;
     }
 
+    if(stalled){
+        exmem.valid = false;
+        return;
+    }
+
     uint32_t rs1_val = idex.rs1_val;
     uint32_t rs2_val = idex.rs2_val;
-
-    // do forwarding stuff
-
-    // TODO: forwarding
-    // if (exmem.reg_write && exmem.rd != 0 && exmem.rd == idex.decoded.rs1)
-    //     rs1_val = exmem.alu_result;
-    // if (memwb.reg_write && memwb.rd != 0 && memwb.rd == idex.decoded.rs1)
-    //     rs1_val = memwb.result;
-
-    // TODO: forwarding
-    // if (exmem.reg_write && exmem.rd != 0 && exmem.rd == idex.decoded.rs2)
-    //     rs2_val = exmem.alu_result;
-    // if (memwb.reg_write && memwb.rd != 0 && memwb.rd == idex.decoded.rs2)
-    //     rs2_val = memwb.result;
 
     uint32_t alu_a = rs1_val;
     uint32_t alu_b = rs2_val;
