@@ -262,7 +262,7 @@ ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
     }
 
     if (opcode == Opcodes::LUI || opcode == Opcodes::AUIPC) { // lui or auipc
-        return ALUOp::SLL;
+        return ALUOp::ADD;
     }
 
     if (opcode == Opcodes::JAL) { // jal
@@ -281,10 +281,6 @@ ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
 //======================================================================================================================
 
 void CPU::stageIF(){
-    if (halted) {
-        ifid.valid = false;
-        return;
-    }
 
     if (halted || pc >= memory.instructionCount() * 4) {
         ifid.valid = false;
@@ -314,6 +310,7 @@ void CPU::stageID(){
         idex.decoded.imm == 0x000) {
         halted = true;
         ifid.valid = false;
+        idex.valid = false;
     }
 }
 
@@ -363,11 +360,6 @@ void CPU::stageEX(){
 
     // added onlyfor testing std::cout << "stageEX: opcode=0x" << std::hex << op << std::endl;
 
-    if (op == Opcodes::SYSTEM) {
-        exmem.valid = false;  // treat as bubble — nothing to execute
-        return;
-    }
-
     ALUOp aluop = MapToALU(idex.decoded.funct3, idex.decoded.funct7, op);
     ALUResult alu_result = alu.execute(aluop, alu_a, alu_b);
 
@@ -398,6 +390,7 @@ void CPU::stageEX(){
     exmem.rs2_val      = rs2_val;           // needed by SW in MEM stage
     exmem.rd           = idex.decoded.rd;
     exmem.pc_next      = pc_next;
+    exmem.funct3       = idex.decoded.funct3;
     exmem.branch_taken = branch_taken || (op == Opcodes::JAL) || (op == Opcodes::JALR);
     exmem.mem_read     = (op == Opcodes::LOAD);
     exmem.mem_write    = (op == Opcodes::STORE);
@@ -425,10 +418,25 @@ void CPU::stageMEM(){
         return;
     }
 
-    if(exmem.mem_read) memwb.result = memory.loadWord(exmem.alu_result);
-    else memwb.result = exmem.alu_result;
+    memwb.result = exmem.alu_result;
 
-    if(exmem.mem_write) memory.storeWord(exmem.alu_result, exmem.rs2_val);
+    if(exmem.mem_read) {
+        if (exmem.funct3 == 0x2) {
+            memwb.result = memory.loadWord(exmem.alu_result);
+        } else if (exmem.funct3 == 0x0) {
+            memwb.result = static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(exmem.alu_result)));
+        } else {
+            memwb.result = exmem.alu_result;
+        }
+    }
+
+    if(exmem.mem_write) {
+        if (exmem.funct3 == 0x2) { // SW
+            memory.storeWord(exmem.alu_result, exmem.rs2_val);
+        } else if (exmem.funct3 == 0x0) { // SB          
+            memory.storeByte(exmem.alu_result, static_cast<uint8_t>(exmem.rs2_val & 0xFF));
+        }
+    }
 
     memwb.rd = exmem.rd;
 

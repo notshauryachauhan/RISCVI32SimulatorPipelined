@@ -37,6 +37,7 @@ struct EXMEM {
     uint32_t rs2_val;
     uint32_t rd;
     uint32_t pc_next;
+    uint32_t funct3;
     bool mem_read;
     bool mem_write;
     bool reg_write;
