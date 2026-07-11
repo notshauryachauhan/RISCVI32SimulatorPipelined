@@ -9,6 +9,9 @@
 #include "include/RegisterFile.h"
 #include "include/CPU.h"
 #include "include/Decoder.h"
+#include "include/ForwardingUnit.h"
+#include "include/HazardDetector.h"
+#include "include/Memory.h"
 
 
 int main(int argc, char* argv[]) {

@@ -344,11 +344,6 @@ void CPU::stageEX(){
         return;
     }
 
-    if(stalled){
-        exmem.valid = false;
-        return;
-    }
-
     ForwardedData fwd = forwardingUnit.forward(idex, exmem, memwb);
 
     uint32_t rs1_val = fwd.rs1_val;
@@ -399,6 +394,13 @@ void CPU::stageEX(){
 
         if (branch_taken) pc_next = branch_target;
     }
+
+    if (op == Opcodes::BRANCH) {
+    std::cout << "BRANCH at pc=0x" << std::hex << idex.pc 
+              << " r1=" << std::dec << rs1_val 
+              << " r2=" << rs2_val 
+              << " taken=" << branch_taken << std::endl;
+}
 
     if (op == Opcodes::JAL)  pc_next = alu_result.value;
     if (op == Opcodes::JALR) pc_next = alu_result.value & ~1u;
