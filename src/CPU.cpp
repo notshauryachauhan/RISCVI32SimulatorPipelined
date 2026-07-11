@@ -1,6 +1,7 @@
 #include "../include/CPU.h"
 #include "../include/Opcodes.h"
 #include "../include/PipelineRegs.h"
+#include "../include/HazardDetector.h"
 
 #include <stdexcept>
 #include <iostream>
@@ -293,6 +294,8 @@ void CPU::stageIF(){
     pc += 4;
 }
 
+//------------------------------------------------------------------------------------
+
 void CPU::stageID(){
     if(!ifid.valid) {
         idex.valid = false;
@@ -313,6 +316,8 @@ void CPU::stageID(){
         idex.valid = false;
     }
 }
+
+//------------------------------------------------------------------------------------
 
 void CPU::stageEX(){
     if(!idex.valid){
@@ -411,6 +416,7 @@ void CPU::stageEX(){
     }
 }
 
+//------------------------------------------------------------------------------------
 
 void CPU::stageMEM(){
     if (!exmem.valid){
@@ -445,6 +451,10 @@ void CPU::stageMEM(){
     memwb.valid = true;
 }
 
+//------------------------------------------------------------------------------------
+
 void CPU::stageWB(){
     if (memwb.valid && memwb.reg_write) regFile.write(memwb.rd, memwb.result);
 }
+
+//-----------------------------------------------------------------------------------

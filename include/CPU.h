@@ -48,5 +48,4 @@ class CPU {
         void stageEX();
         void stageMEM();
         void stageWB();
-
 };
