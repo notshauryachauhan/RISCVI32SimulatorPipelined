@@ -42,9 +42,18 @@ void CPU::startSimulation(RunMode mode){
 
 void CPU::runPipelined(){
     while ((!halted || ifid.valid || idex.valid || exmem.valid || memwb.valid) && cycleCount < 1000000){
+    
+        MEMWB saved_memwb = memwb; 
+        
         stageWB();
         stageMEM();
+        
+        MEMWB new_memwb = memwb;
+        memwb = saved_memwb;
+        
         stageEX();
+        
+        memwb = new_memwb;
 
         HazardSignals signals = hazarddetector.detect(ifid, idex, exmem);
 
