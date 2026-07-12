@@ -7,7 +7,9 @@ SRCS = main.cpp \
        src/CPU.cpp \
        src/Decoder.cpp \
        src/Memory.cpp \
-       src/RegisterFile.cpp
+       src/RegisterFile.cpp \
+       src/HazardDetector.cpp \
+       src/ForwardingUnit.cpp
 
 TARGET = simulator
 
