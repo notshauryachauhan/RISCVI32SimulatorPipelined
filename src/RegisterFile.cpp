@@ -5,6 +5,10 @@
 #include <iomanip>
 
 RegisterFile::RegisterFile() {
+    reset();
+}
+
+void RegisterFile::reset() {
     for (int i = 0; i < 32; ++i) {
         regs[i] = 0;
     }

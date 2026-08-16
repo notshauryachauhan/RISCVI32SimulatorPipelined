@@ -5,9 +5,9 @@
 #include <cstdint>
 
 struct IFID {
-    uint32_t instruction;
-    uint32_t pc;
-    bool valid;
+    uint32_t instruction = 0;
+    uint32_t pc = 0;
+    bool valid = false;
 
     void reset(){
         instruction = 0;
@@ -17,11 +17,11 @@ struct IFID {
 };
 
 struct IDEX {
-    uint32_t pc;
-    Instruction decoded;
-    uint32_t rs1_val;
-    uint32_t rs2_val;
-    bool valid;
+    uint32_t pc = 0;
+    Instruction decoded {};
+    uint32_t rs1_val = 0;
+    uint32_t rs2_val = 0;
+    bool valid = false;
 
     void reset(){
         pc = 0;
@@ -33,22 +33,23 @@ struct IDEX {
 };
 
 struct EXMEM {
-    uint32_t alu_result;
-    uint32_t rs2_val;
-    uint32_t rd;
-    uint32_t pc_next;
-    uint32_t funct3;
-    bool mem_read;
-    bool mem_write;
-    bool reg_write;
-    bool branch_taken;
-    bool valid;
+    uint32_t alu_result = 0;
+    uint32_t rs2_val = 0;
+    uint32_t rd = 0;
+    uint32_t pc_next = 0;
+    uint32_t funct3 = 0;
+    bool mem_read = false;
+    bool mem_write = false;
+    bool reg_write = false;
+    bool branch_taken = false;
+    bool valid = false;
 
     void reset(){
         alu_result = 0;
         rs2_val = 0;
         rd = 0;
         pc_next = 0;
+        funct3 = 0;
         mem_read = false;
         mem_write = false;
         reg_write = false;
@@ -58,10 +59,10 @@ struct EXMEM {
 };
 
 struct MEMWB {
-    uint32_t result;
-    uint32_t rd;
-    bool reg_write;
-    bool valid;
+    uint32_t result = 0;
+    uint32_t rd = 0;
+    bool reg_write = false;
+    bool valid = false;
 
     void reset(){
         result = 0;

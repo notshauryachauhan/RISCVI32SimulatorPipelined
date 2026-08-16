@@ -6,6 +6,7 @@ class RegisterFile {
         RegisterFile();
         uint32_t read(int reg) const;
         void write(int reg, uint32_t value);
+        void reset();
         void dump() const;
 
     private:

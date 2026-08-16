@@ -23,25 +23,28 @@ Instruction Decoder::decode(uint32_t raw_instruction) {
             instr.rd = (raw_instruction >> 7) & 0x1F;
             instr.funct3 = (raw_instruction >> 12) & 0x07;
             instr.rs1 = (raw_instruction >> 15) & 0x1F;
+            instr.funct7 = (raw_instruction >> 25) & 0x7F;
             instr.imm = static_cast<int32_t>(raw_instruction) >> 20;
             break;
 
-        case InstrType::S:
+        case InstrType::S: {
             instr.funct3 = (raw_instruction >> 12) & 0x07;
             instr.rs1 = (raw_instruction >> 15) & 0x1F;
             instr.rs2 = (raw_instruction >> 20) & 0x1F;
-            instr.imm = ((static_cast<int32_t>(raw_instruction) >> 25) << 5) | ((raw_instruction >> 7) & 0x1F);
+            uint32_t imm_u = (((raw_instruction >> 25) & 0x7F) << 5) | ((raw_instruction >> 7) & 0x1F);
+            instr.imm = static_cast<int32_t>(imm_u << 20) >> 20;
             break;
+        }
 
         case InstrType::B:{
             instr.funct3 = (raw_instruction >> 12) & 0x07;
             instr.rs1 = (raw_instruction >> 15) & 0x1F;
             instr.rs2 = (raw_instruction >> 20) & 0x1F;
-            int32_t imm12_B = ((static_cast<int32_t>(raw_instruction) >> 31) << 12);
-            int32_t imm11_B = ((raw_instruction >> 7) & 0x01) << 11;
-            int32_t imm10_5_B = ((raw_instruction >> 25) & 0x3F) << 5;
-            int32_t imm4_1_B = ((raw_instruction >> 8) & 0x0F) << 1;
-            instr.imm = imm12_B | imm11_B | imm10_5_B | imm4_1_B;
+            uint32_t imm_u = (((raw_instruction >> 31) & 0x01) << 12) |
+                             (((raw_instruction >> 7) & 0x01) << 11) |
+                             (((raw_instruction >> 25) & 0x3F) << 5) |
+                             (((raw_instruction >> 8) & 0x0F) << 1);
+            instr.imm = static_cast<int32_t>(imm_u << 19) >> 19;
             break;
         }
 
@@ -52,11 +55,11 @@ Instruction Decoder::decode(uint32_t raw_instruction) {
         
         case InstrType::J:{
             instr.rd = (raw_instruction >> 7) & 0x1F;
-            int32_t imm20_J = ((static_cast<int32_t>(raw_instruction) >> 31) << 20);
-            int32_t imm19_12_J = ((raw_instruction >> 12) & 0xFF) << 12;
-            int32_t imm11_J = ((raw_instruction >> 20) & 0x01) << 11;
-            int32_t imm10_1_J = ((raw_instruction >> 21) & 0x3FF) << 1;
-            instr.imm = imm20_J | imm19_12_J | imm11_J | imm10_1_J;
+            uint32_t imm_u = (((raw_instruction >> 31) & 0x01) << 20) |
+                             (((raw_instruction >> 12) & 0xFF) << 12) |
+                             (((raw_instruction >> 20) & 0x01) << 11) |
+                             (((raw_instruction >> 21) & 0x3FF) << 1);
+            instr.imm = static_cast<int32_t>(imm_u << 11) >> 11;
             break;
         }
 
@@ -80,6 +83,7 @@ InstrType Decoder::getInstrType(uint32_t opcode) {
         case Opcodes::OP_IMM:
         case Opcodes::LOAD:
         case Opcodes::JALR:
+        case Opcodes::FENCE:
             return InstrType::I;
             break;
         case Opcodes::STORE:

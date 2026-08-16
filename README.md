@@ -2,7 +2,7 @@
 
 A 5-stage pipelined CPU simulator implementing the full RV32I base integer instruction set, written in C++17.
 
-Supports both **single-cycle** and **5-stage pipelined** execution modes in one binary, selectable at runtime. The pipelined mode implements load-use hazard detection with stalls, operand forwarding (EX/MEM and MEM/WB paths), and control hazard flushing for branches and jumps.
+Supports both **Single-Cycle** and **5-Stage Pipelined** execution modes in a single binary, selectable at runtime. The pipelined mode implements load-use hazard detection with automatic bubble stalls, dual-path operand forwarding (EX/MEM and MEM/WB paths with priority resolution), and control hazard flushing for branches and jumps.
 
 ---
 
@@ -28,26 +28,29 @@ Supports both **single-cycle** and **5-stage pipelined** execution modes in one 
                                        └──────────┘
 ```
 
-**Hazard handling:**
-- **Load-use hazard** → 1-cycle stall + forwarding after stall
-- **Control hazard** → 2-cycle flush on taken branch/jump
-- **RAW data hazard** → resolved by EX/MEM and MEM/WB forwarding paths, zero stalls
+**Hazard Handling Mechanisms:**
+- **RAW Data Hazards** → Resolved without stalling via EX/MEM and MEM/WB forwarding paths.
+- **Load-Use Data Hazards** → 1-cycle stall with bubble insertion, followed by MEM/WB operand forwarding.
+- **Control Hazards** → 2-cycle flush of IF/ID and ID/EX stages on taken branches and jumps (`JAL`/`JALR`).
 
 ---
 
 ## Features
 
-- Full RV32I instruction set — all 40 base integer instructions
-- Two execution modes in one binary: `SingleCycle` and `Pipelined`
-- 5-stage pipeline: IF → ID → EX → MEM → WB
-- Four pipeline registers: IF/ID, ID/EX, EX/MEM, MEM/WB with `valid` flag bubble propagation
-- `HazardDetector` class — detects load-use hazards and branch flushes
-- `ForwardingUnit` class — dual forwarding paths (EX/MEM → EX, MEM/WB → EX) with correct priority
-- Pipeline register snapshot mechanism to correctly model simultaneous stage execution
-- 64KB byte-addressable data memory, little-endian
-- Modular class-based architecture: `CPU`, `Memory`, `RegisterFile`, `ALU`, `Decoder`, `HazardDetector`, `ForwardingUnit`
-- Register dump with ABI names, hex and decimal values on exit
-- Cycle count reported on exit
+- **Full RV32I Base Integer ISA Support**:
+  - **R-Type (10)**: `ADD`, `SUB`, `SLL`, `SLT`, `SLTU`, `XOR`, `SRL`, `SRA`, `OR`, `AND`
+  - **I-Type Arithmetic (9)**: `ADDI`, `SLTI`, `SLTIU`, `XORI`, `ORI`, `ANDI`, `SLLI`, `SRLI`, `SRAI`
+  - **I-Type Loads (5)**: `LB`, `LH`, `LW`, `LBU`, `LHU`
+  - **I-Type Control & System (3)**: `JALR`, `ECALL`, `EBREAK`, `FENCE`
+  - **S-Type Stores (3)**: `SB`, `SH`, `SW`
+  - **B-Type Branches (6)**: `BEQ`, `BNE`, `BLT`, `BGE`, `BLTU`, `BGEU`
+  - **U-Type Immediates (2)**: `LUI`, `AUIPC`
+  - **J-Type Unconditional Jump (1)**: `JAL`
+- **Dual Execution Modes**: `SingleCycle` and `Pipelined` in one unified binary.
+- **Clock-Edge Snapshotting**: Models simultaneous pipeline stage execution without stage-overwrite corruption.
+- **Bubble Propagation**: Pipeline register `valid` flags propagate pipeline bubbles cleanly without artificial NOP injections.
+- **Memory System**: 64KB byte-addressable, little-endian data memory supporting byte, halfword, and word operations.
+- **Register File**: 32 standard 32-bit registers with hardwired `x0 = 0` and formatted register dump reporting ABI names, hexadecimal, and decimal values.
 
 ---
 
@@ -55,157 +58,118 @@ Supports both **single-cycle** and **5-stage pipelined** execution modes in one 
 
 ```
 RISCVI32SimulatorPipelined/
-├── main.cpp
-├── makefile
-├── build.bat                  # Windows quick build
+├── main.cpp                   # CLI entry point
+├── makefile                   # Build configuration (Linux/macOS/MinGW)
+├── build.bat                  # Windows batch build script
 ├── include/
-│   ├── ALU.h
-│   ├── CPU.h
-│   ├── Decoder.h
-│   ├── ForwardingUnit.h
-│   ├── HazardDetector.h
-│   ├── Memory.h
-│   ├── Opcodes.h
-│   ├── PipelineRegs.h         # IFID, IDEX, EXMEM, MEMWB structs
-│   └── RegisterFile.h
+│   ├── ALU.h                  # ALU declarations & operations
+│   ├── CPU.h                  # Top-level CPU core & pipeline controller
+│   ├── Decoder.h              # Instruction decoder & immediate sign extension
+│   ├── ForwardingUnit.h       # Dual-path operand forwarding unit
+│   ├── HazardDetector.h       # Load-use stall & branch flush detector
+│   ├── Memory.h               # Instruction & 64KB byte-addressable data memory
+│   ├── Opcodes.h              # RV32I opcode constants
+│   ├── PipelineRegs.h         # IF/ID, ID/EX, EX/MEM, MEM/WB registers
+│   └── RegisterFile.h         # 32-register storage with ABI formatting
 ├── src/
-│   ├── ALU.cpp
-│   ├── CPU.cpp                # Both single-cycle and pipeline implementations
-│   ├── Decoder.cpp
-│   ├── ForwardingUnit.cpp
-│   ├── HazardDetector.cpp
-│   ├── Memory.cpp
-│   └── RegisterFile.cpp
+│   ├── ALU.cpp                # ALU execution logic
+│   ├── CPU.cpp                # Single-cycle & pipelined execution stages
+│   ├── Decoder.cpp            # Bitfield extraction & sign extension
+│   ├── ForwardingUnit.cpp     # Forwarding priority resolution
+│   ├── HazardDetector.cpp     # Hazard detection logic
+│   ├── Memory.cpp             # Memory operations (LB/LH/LW/SB/SH/SW)
+│   └── RegisterFile.cpp       # Register reads, writes, and dumps
 └── asm/
-    ├── factorial_loop.bin
-    ├── factorial_baseset.bin
-    ├── fibonacci.bin
-    └── load_hazard_test.bin
+    ├── factorial_loop.bin     # Factorial calculation using loops
+    ├── factorial_baseset.bin  # Factorial implementation using base instructions
+    ├── fibonacci.bin          # Iterative Fibonacci computation
+    ├── load_hazard_test.bin   # Targeted load-use hazard verification
+    └── test.bin               # Memory store, load, and branch verification
 ```
 
 ---
 
 ## Prerequisites
 
-- C++17 compiler — `g++` 9 or later, or `clang++` 10 or later
-- `make` (Linux/macOS) or MinGW64 (Windows)
-
-No external dependencies.
+- **C++17 Compiler**: `g++` 9+ or `clang++` 10+
+- **Build Tools**: `make` (Linux/macOS/MSYS2) or standard Windows Command Prompt / PowerShell
 
 ---
 
 ## Build
 
-**Linux / macOS**
+**Linux / macOS / MSYS2:**
 ```bash
 make
 ```
 
-**Windows — MSYS2 MinGW64 terminal**
-```bash
-make
-```
-
-**Windows — Command Prompt**
-```
+**Windows (Command Prompt / PowerShell):**
+```bat
 build.bat
 ```
-
-Output binary: `simulator` (or `simulator.exe` on Windows).
+*(Or compile directly with `g++ -std=c++17 -Wall -Wextra -Iinclude main.cpp src/*.cpp -o simulator.exe`)*
 
 ---
 
 ## Usage
 
-```
+```bash
 ./simulator <program.bin> <mode>
 ```
 
-`<mode>` is either `SingleCycle` or `Pipelined`.
+- `<mode>`: Either `SingleCycle` or `Pipelined`.
 
-**Examples**
+**Examples:**
 ```bash
 ./simulator asm/factorial_loop.bin SingleCycle
 ./simulator asm/factorial_loop.bin Pipelined
 ./simulator asm/fibonacci.bin Pipelined
+./simulator asm/load_hazard_test.bin Pipelined
 ```
 
-The input `.bin` file is produced by the companion [RV32I Assembler](https://github.com/notshauryachauhan/RISCVI32Assembler) — one 32-bit binary string per line, plain text.
+The input `.bin` file is formatted as one 32-bit binary instruction per line (generated by the companion [RV32I Assembler](https://github.com/notshauryachauhan/RISCVI32Assembler)).
 
 ---
 
 ## Verified Results
 
-All programs produce identical register state in both modes. Cycle counts differ due to pipeline fill, branch penalties, and load-use stalls.
+Both execution modes produce 100% identical final register file states. Cycle count variations reflect pipeline fills, branch flushes, and load-use stall cycles.
 
-| Program | Mode | Result (`a0`) | Cycles |
-|---------|------|---------------|--------|
-| `factorial_loop.bin` | SingleCycle | 120 ✓ | 95 |
-| `factorial_loop.bin` | Pipelined | 120 ✓ | 121 |
-| `fibonacci.bin` | SingleCycle | 55 ✓ | 50 |
-| `load_hazard_test.bin` | SingleCycle | — | 5 |
-| `load_hazard_test.bin` | Pipelined | — | 9 |
-
-**Pipeline overhead breakdown for `factorial_loop`:**
-
-```
-Single-cycle cycles:   95   (one cycle per instruction)
-Pipeline cycles:      121
-───────────────────────────
-Extra cycles:          26
-  Pipeline drain:       4   (last instruction takes 4 extra cycles to reach WB)
-  Branch penalties:    22   (11 taken branches × 2 flush cycles each)
-```
-
-**Load-use hazard test (`load_hazard_test.bin`):**
-
-```asm
-addi x1, x0, 256     # x1 = 256
-lw   x2, 0(x1)       # x2 = mem[256]   ← LOAD
-add  x3, x2, x1      # x3 = x2 + x1    ← USE x2 immediately: load-use hazard
-addi x4, x0, 5
-ecall
-```
-
-Pipeline: 1 stall cycle inserted, result correct. 9 cycles vs 5 single-cycle (4 pipeline drain + 1 stall).
+| Program | Mode | Result (`a0`) | Cycles | Description |
+|---|---|---|---|---|
+| `factorial_loop.bin` | SingleCycle | `120` (0x78) ✓ | 95 | Iterative 5! factorial loop |
+| `factorial_loop.bin` | Pipelined | `120` (0x78) ✓ | 121 | 11 taken branches × 2 flush penalty cycles + 4 drain cycles |
+| `factorial_baseset.bin` | SingleCycle | `120` (0x78) ✓ | 151 | Factorial using base ALU instruction subset |
+| `factorial_baseset.bin` | Pipelined | `120` (0x78) ✓ | 190 | Branch flush penalties + pipeline latency |
+| `fibonacci.bin` | SingleCycle | `55` (0x37) ✓ | 50 | 10th Fibonacci number computation |
+| `fibonacci.bin` | Pipelined | `55` (0x37) ✓ | 62 | Data forwarding on loop variables + branch penalties |
+| `load_hazard_test.bin` | SingleCycle | — | 5 | Consecutive load followed by ALU use |
+| `load_hazard_test.bin` | Pipelined | — | 9 | 1 stall cycle inserted + 4 pipeline drain cycles |
+| `test.bin` | SingleCycle | `1` (0x01) ✓ | 6 | Memory store-load consistency & branch |
+| `test.bin` | Pipelined | `1` (0x01) ✓ | 12 | Load forwarding and taken branch flushing |
 
 ---
 
-## Architecture
+## Pipeline Execution Details
 
-**`CPU`** — owns all subcomponents as direct members. Implements both `runSingleCycle()` and `runPipelined()`, dispatched via `startSimulation(RunMode)`. The pipeline loop runs stages in reverse order (WB→MEM→EX→ID→IF) to model simultaneous hardware execution. Pipeline registers are snapshotted before each stage to prevent overwrite corruption between stages in the same cycle.
-
-**`HazardDetector`** — stateless class. Takes the current pipeline register state and returns a `HazardSignals` struct with `stall` and `flush` booleans. Load-use detection checks the IDEX stage for a LOAD whose `rd` matches `rs1` or `rs2` of the incoming instruction. Branch/jump flush detection checks `EXMEM.branch_taken`.
-
-**`ForwardingUnit`** — stateless class. Takes `IDEX`, `EXMEM`, `MEMWB` snapshots and returns forwarded `rs1_val` and `rs2_val`. EX/MEM path takes priority over MEM/WB via `else if` — critical for back-to-back writes to the same register. Both paths check `valid`, `reg_write`, and `rd != 0`.
-
-**`Decoder`** — extracts all instruction fields from a raw 32-bit encoding. Handles all six instruction formats with correct sign-extended immediates, including the scrambled bit layouts of B-type and J-type encodings.
-
-**`Memory`** — separate instruction and data memory. Instruction memory loaded from `.bin` file at startup. 64KB data memory, byte-addressable, little-endian. Exposes word/halfword/byte load and store operations.
-
-**`ALU`** — stateless. Returns `ALUResult` with computed value and zero flag. Handles signed/unsigned distinction for SLT/SLTU and SRA/SRL via `int32_t` cast before shifting.
-
-**`RegisterFile`** — 32 × 32-bit registers. Silently ignores writes to `x0`. Exposes a formatted `dump()` with ABI names in hex and decimal.
+1. **Cycle Snapshotting**: At the beginning of each cycle, downstream pipeline registers (`EX/MEM` and `MEM/WB`) are snapshotted so execution in `EX` and forwarding logic read inputs as of the rising clock edge.
+2. **Reverse Stage Execution**: Stages execute in reverse order (`WB → MEM → EX → ID → IF`) within each cycle to model concurrent hardware operation in a sequential software loop.
+3. **Forwarding Unit Priority**: Forwarding from `EX/MEM` takes priority over `MEM/WB` to ensure the most recent register update is always supplied when back-to-back instructions write to the same destination register.
+4. **Load-Use Stalling**: When an instruction in `ID/EX` is a load and its destination register matches any operand source in `IF/ID`, a 1-cycle stall is signaled:
+   - `IF/ID` and `PC` are frozen.
+   - A bubble (`valid = false`) is inserted into `ID/EX`.
+   - On the next cycle, the loaded value is forwarded directly from `MEM/WB` to `EX`.
+5. **Branch Flushing**: When a branch condition evaluates to true or a jump instruction executes in `EX`, the target PC is redirected and pending instructions in `IF/ID` and `ID/EX` are invalidated.
 
 ---
 
-## Implementation Notes
-
-**Pipeline register snapshots** — the key challenge in a sequential pipeline simulator is that running stages in order causes each stage to overwrite shared pipeline registers before downstream stages read them. This simulator takes a snapshot of `EXMEM` and `MEMWB` at the start of each cycle and passes them to `stageEX` and the forwarding unit, correctly modelling the simultaneous clock-edge behaviour of real hardware.
-
-**Bubble propagation** — instead of inserting a real NOP encoding, each pipeline register carries a `bool valid` flag. When `valid = false`, every stage treats the register as a bubble and produces no side effects. Stalls set `exmem.valid = false`. Flushes set `ifid.valid = false` and `idex.valid = false`.
-
-**ECALL termination** — detected in `stageID`. Sets `halted = true` and marks both `ifid` and `idex` as invalid, stopping new fetches while the pipeline drains. The main loop continues until all pipeline registers are invalid.
-
----
-
-## Related
+## Related Projects
 
 - **Phase 1 — RV32I Assembler:** [notshauryachauhan/RISCVI32Assembler](https://github.com/notshauryachauhan/RISCVI32Assembler)
-- **Phase 2 — Single-Cycle Simulator:** [notshauryachauhan/RISCVI32Simulator](https://github.com/notshauryachauhan/RISCVI32SimulatorSingleCycle)
+- **Phase 2 — Single-Cycle Simulator:** [notshauryachauhan/RISCVI32SimulatorSingleCycle](https://github.com/notshauryachauhan/RISCVI32SimulatorSingleCycle)
 
 ---
 
 ## Author
 
-Shaurya Chauhan — EE, IIT Bhubaneswar  
+Shaurya Chauhan — EE, IIT Bhubaneswar

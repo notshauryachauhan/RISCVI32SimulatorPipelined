@@ -1,16 +1,35 @@
-*.pdf
-
-assembler
-
-*.o
-
+# Compiled binaries
+simulator
+simulator.exe
+*.exe
 *.out
+*.app
 
+# Object files & archives
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Debug symbols & folders
+*.dSYM/
+*.pdb
+
+# Temporary files
+temp_*.bin
+*.tmp
+*.temp
+
+# IDE & Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+
+# OS artifacts
 .DS_Store
 Thumbs.db
-
-*.exe

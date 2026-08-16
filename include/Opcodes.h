@@ -12,4 +12,5 @@ namespace Opcodes {
     constexpr uint32_t LUI     = 0x37;
     constexpr uint32_t AUIPC   = 0x17;
     constexpr uint32_t SYSTEM  = 0x73;
+    constexpr uint32_t FENCE   = 0x0F;
 }

@@ -6,24 +6,35 @@
 #include <cstdint>
 #include <vector>
 
+void Memory::reset() {
+    instrMem.clear();
+    dataMem.assign(65536, 0);
+}
+
 void Memory::loadProgram(const std::string& filename) {
+    reset();
+
     std::ifstream file(filename);
 
-    dataMem.resize(65536, 0);
-
     if (!file.is_open()) {
-        std::cerr << "Error: Could not open the file." << std::endl;
+        std::cerr << "Error: Could not open file: " << filename << std::endl;
         return;
     }
 
     std::string line;
 
     while(std::getline(file, line)){
-        if(line.empty()){
+        size_t first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            continue;
+        }
+        size_t last = line.find_last_not_of(" \t\r\n");
+        std::string trimmed = line.substr(first, (last - first + 1));
+        if (trimmed.empty()) {
             continue;
         }
 
-        uint32_t instruction = static_cast<uint32_t>(std::stoul(line, nullptr, 2));
+        uint32_t instruction = static_cast<uint32_t>(std::stoul(trimmed, nullptr, 2));
         instrMem.push_back(instruction);
     }
 }
@@ -56,6 +67,24 @@ void Memory::storeWord(uint32_t address, uint32_t value) {
         dataMem[address + 2] = (value >> 16) & 0xFF;
         dataMem[address + 1] = (value >> 8) & 0xFF;
         dataMem[address] = value & 0xFF;
+    } else {
+        std::cerr << "Error: Data address out of bounds." << std::endl;
+    }
+}
+
+uint16_t Memory::loadHalf(uint32_t address) const {
+    if (address + 1 < dataMem.size()) {
+        return static_cast<uint16_t>(dataMem[address] | (dataMem[address + 1] << 8));
+    } else {
+        std::cerr << "Error: Data address out of bounds." << std::endl;
+        return 0;
+    }
+}
+
+void Memory::storeHalf(uint32_t address, uint16_t value) {
+    if (address + 1 < dataMem.size()) {
+        dataMem[address] = value & 0xFF;
+        dataMem[address + 1] = (value >> 8) & 0xFF;
     } else {
         std::cerr << "Error: Data address out of bounds." << std::endl;
     }

@@ -17,6 +17,8 @@ void CPU::loadProgram(const std::string& filename) {
     pc = 0;
     cycleCount = 0;
     halted = false;
+    stalled = false;
+    regFile.reset();
     regFile.write(2, 65536); // initialize sp to top of memory
     ifid.reset();
     idex.reset();
@@ -41,7 +43,7 @@ void CPU::startSimulation(RunMode mode){
 }
 
 void CPU::runPipelined(){
-    while ((!halted || ifid.valid || idex.valid || exmem.valid || memwb.valid) && cycleCount < 1000000){
+    while (((!halted && pc < memory.instructionCount() * 4) || ifid.valid || idex.valid || exmem.valid || memwb.valid) && cycleCount < 1000000){
     
         MEMWB saved_memwb = memwb; 
         
@@ -100,15 +102,31 @@ void CPU::runSingleCycle() {
 //--------------------------------------------------------------------------------------
 
             case InstrType::I:
+                if (id_decoded.opcode == Opcodes::FENCE) {
+                    pc += 4;
+                    break;
+                }
                 aluop = MapToALU(id_decoded.funct3, id_decoded.funct7, id_decoded.opcode);
                 alu_result = alu.execute(aluop, regFile.read(id_decoded.rs1), id_decoded.imm);
                 if (id_decoded.opcode == Opcodes::LOAD){
-                    if (id_decoded.funct3 == 0x0) { // LB
-                        regFile.write(id_decoded.rd, static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(alu_result.value))));
-                    } else if (id_decoded.funct3 == 0x2) { // LW
-                        regFile.write(id_decoded.rd, memory.loadWord(alu_result.value));
-                    } else {
-                        throw std::runtime_error("Unsupported load instruction");
+                    switch (id_decoded.funct3) {
+                        case 0x0: // LB
+                            regFile.write(id_decoded.rd, static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(alu_result.value))));
+                            break;
+                        case 0x1: // LH
+                            regFile.write(id_decoded.rd, static_cast<int32_t>(static_cast<int16_t>(memory.loadHalf(alu_result.value))));
+                            break;
+                        case 0x2: // LW
+                            regFile.write(id_decoded.rd, memory.loadWord(alu_result.value));
+                            break;
+                        case 0x4: // LBU
+                            regFile.write(id_decoded.rd, static_cast<uint32_t>(memory.loadByte(alu_result.value)));
+                            break;
+                        case 0x5: // LHU
+                            regFile.write(id_decoded.rd, static_cast<uint32_t>(memory.loadHalf(alu_result.value)));
+                            break;
+                        default:
+                            throw std::runtime_error("Unsupported load instruction");
                     }
                 } else if(id_decoded.opcode == Opcodes::OP_IMM) {
                     regFile.write(id_decoded.rd, alu_result.value);
@@ -128,6 +146,9 @@ void CPU::runSingleCycle() {
                 switch (id_decoded.funct3) {
                     case 0x0: // SB
                         memory.storeByte(alu_result.value, static_cast<uint8_t>(regFile.read(id_decoded.rs2) & 0xFF));
+                        break;
+                    case 0x1: // SH
+                        memory.storeHalf(alu_result.value, static_cast<uint16_t>(regFile.read(id_decoded.rs2) & 0xFFFF));
                         break;
                     case 0x2: // SW
                         memory.storeWord(alu_result.value, regFile.read(id_decoded.rs2));
@@ -168,6 +189,18 @@ void CPU::runSingleCycle() {
                             continue;
                         }
                         break;
+                    case 0x6: // BLTU
+                        if (regFile.read(id_decoded.rs1) < regFile.read(id_decoded.rs2)) {
+                            pc += id_decoded.imm;
+                            continue;
+                        }
+                        break;
+                    case 0x7: // BGEU
+                        if (regFile.read(id_decoded.rs1) >= regFile.read(id_decoded.rs2)) {
+                            pc += id_decoded.imm;
+                            continue;
+                        }
+                        break;
                     default:
                         throw std::runtime_error("Unsupported branch instruction");
                 }
@@ -198,7 +231,7 @@ void CPU::runSingleCycle() {
 //--------------------------------------------------------------------------------------
 
             case InstrType::SYSTEM:
-                if (id_decoded.funct3 == 0x0 && id_decoded.imm == 0x000) {
+                if (id_decoded.funct3 == 0x0 && (id_decoded.imm == 0x000 || id_decoded.imm == 0x001)) {
                     halted = true;
                 } else {
                     throw std::runtime_error("Unsupported SYSTEM instruction");
@@ -289,6 +322,10 @@ ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
         return ALUOp::ADD;
     }
 
+    if (opcode == Opcodes::FENCE) { // fence
+        return ALUOp::ADD;
+    }
+
 
     throw std::invalid_argument("Unsupported instruction type for ALU mapping");
 }
@@ -338,7 +375,7 @@ void CPU::stageID(){
 
     if (idex.decoded.type == InstrType::SYSTEM && 
         idex.decoded.funct3 == 0x0 && 
-        idex.decoded.imm == 0x000) {
+        (idex.decoded.imm == 0x000 || idex.decoded.imm == 0x001)) {
         halted = true;
         ifid.valid = false;
         idex.valid = false;
@@ -428,7 +465,8 @@ void CPU::stageEX(){
 
     exmem.reg_write    = (op != Opcodes::STORE && 
                           op != Opcodes::BRANCH && 
-                          op != Opcodes::SYSTEM);
+                          op != Opcodes::SYSTEM &&
+                          op != Opcodes::FENCE);
 
     exmem.valid        = true;
 
@@ -453,22 +491,40 @@ void CPU::stageMEM(){
     memwb.result = exmem.alu_result;
 
     if(exmem.mem_read) {
-        if (exmem.funct3 == 0x2) {
-            memwb.result = memory.loadWord(exmem.alu_result);
-        } else if (exmem.funct3 == 0x0) {
-            memwb.result = static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(exmem.alu_result)));
-        } else {
-            throw std::runtime_error("LH (funct3=0x1), LHU (funct3=0x5), LBU (funct3=0x4) are unsupported");
+        switch (exmem.funct3) {
+            case 0x0: // LB
+                memwb.result = static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(exmem.alu_result)));
+                break;
+            case 0x1: // LH
+                memwb.result = static_cast<int32_t>(static_cast<int16_t>(memory.loadHalf(exmem.alu_result)));
+                break;
+            case 0x2: // LW
+                memwb.result = memory.loadWord(exmem.alu_result);
+                break;
+            case 0x4: // LBU
+                memwb.result = static_cast<uint32_t>(memory.loadByte(exmem.alu_result));
+                break;
+            case 0x5: // LHU
+                memwb.result = static_cast<uint32_t>(memory.loadHalf(exmem.alu_result));
+                break;
+            default:
+                throw std::runtime_error("Unsupported load instruction in MEM stage");
         }
     }
 
     if(exmem.mem_write) {
-        if (exmem.funct3 == 0x2) { // SW
-            memory.storeWord(exmem.alu_result, exmem.rs2_val);
-        } else if (exmem.funct3 == 0x0) { // SB          
-            memory.storeByte(exmem.alu_result, static_cast<uint8_t>(exmem.rs2_val & 0xFF));
-        } else {
-            throw std::runtime_error("SH is unsupported");
+        switch (exmem.funct3) {
+            case 0x0: // SB
+                memory.storeByte(exmem.alu_result, static_cast<uint8_t>(exmem.rs2_val & 0xFF));
+                break;
+            case 0x1: // SH
+                memory.storeHalf(exmem.alu_result, static_cast<uint16_t>(exmem.rs2_val & 0xFFFF));
+                break;
+            case 0x2: // SW
+                memory.storeWord(exmem.alu_result, exmem.rs2_val);
+                break;
+            default:
+                throw std::runtime_error("Unsupported store instruction in MEM stage");
         }
     }
 

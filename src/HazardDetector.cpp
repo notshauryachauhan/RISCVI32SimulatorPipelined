@@ -13,7 +13,7 @@ HazardSignals HazardDetector::detect(const IFID& ifid, const IDEX& idex, const E
         if(ifid.valid){
             uint32_t op = ifid.instruction & 0x7F; 
             
-            bool uses_rs1 = (op != Opcodes::JAL && op != Opcodes::LUI && op != Opcodes::AUIPC);
+            bool uses_rs1 = (op != Opcodes::JAL && op != Opcodes::LUI && op != Opcodes::AUIPC && op != Opcodes::SYSTEM && op != Opcodes::FENCE);
             bool uses_rs2 = (op == Opcodes::OP || op == Opcodes::BRANCH || op == Opcodes::STORE);
 
             uint32_t rs1_id = (ifid.instruction >> 15) & 0x1F;
