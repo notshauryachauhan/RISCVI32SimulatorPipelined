@@ -3,14 +3,16 @@
 #include "../include/PipelineRegs.h"
 #include "../include/HazardDetector.h"
 #include "../include/ForwardingUnit.h"
+#include "../include/CPUStats.h"
 
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 #include <cstdint>
 #include <string>
 
-CPU::CPU() : alu(), decoder(), regFile(), memory(), pc(0), cycleCount(0), halted(false), stalled(false) {}
+CPU::CPU() : alu(), decoder(), regFile(), memory(), pc(0), cycleCount(0), halted(false), stalled(false), stats() {}
 
 void CPU::loadProgram(const std::string& filename) {
     memory.loadProgram(filename);
@@ -24,9 +26,11 @@ void CPU::loadProgram(const std::string& filename) {
     idex.reset();
     exmem.reset();
     memwb.reset();
+    stats.reset(RunMode::SingleCycle);
 }
 
 void CPU::startSimulation(RunMode mode){
+    stats.reset(mode);
     switch(mode){
         case RunMode::Pipelined:
             runPipelined();
@@ -39,7 +43,6 @@ void CPU::startSimulation(RunMode mode){
             runSingleCycle();
             break;
     }
-
 }
 
 void CPU::runPipelined(){
@@ -65,17 +68,20 @@ void CPU::runPipelined(){
             ifid.valid = false;
             exmem.branch_taken = false;
             stalled = false;
+            stats.flushCount++;
         } else if (signals.stall){
             stalled = true;
+            stats.stallCycles++;
+            stats.loadUseHazards++;
         } else {
             stalled = false;
         }
         stageID();
         stageIF();
         cycleCount++;
+        stats.totalCycles = cycleCount;
     }
 }
-
 
 //=============================================================================================================
 // Single Cycle Implementation
@@ -90,9 +96,12 @@ void CPU::runSingleCycle() {
         ALUResult alu_result = {0, false};
 
         cycleCount++;
+        stats.totalCycles = cycleCount;
+        stats.instructionsRetired++;
 
         switch (id_decoded.type) {
             case InstrType::R:
+                stats.rTypeCount++;
                 aluop = MapToALU(id_decoded.funct3, id_decoded.funct7, id_decoded.opcode);
                 alu_result = alu.execute(aluop, regFile.read(id_decoded.rs1), regFile.read(id_decoded.rs2));
                 regFile.write(id_decoded.rd, alu_result.value);
@@ -103,12 +112,15 @@ void CPU::runSingleCycle() {
 
             case InstrType::I:
                 if (id_decoded.opcode == Opcodes::FENCE) {
+                    stats.systemCount++;
                     pc += 4;
                     break;
                 }
                 aluop = MapToALU(id_decoded.funct3, id_decoded.funct7, id_decoded.opcode);
                 alu_result = alu.execute(aluop, regFile.read(id_decoded.rs1), id_decoded.imm);
                 if (id_decoded.opcode == Opcodes::LOAD){
+                    stats.loadCount++;
+                    stats.memoryReads++;
                     switch (id_decoded.funct3) {
                         case 0x0: // LB
                             regFile.write(id_decoded.rd, static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(alu_result.value))));
@@ -129,8 +141,12 @@ void CPU::runSingleCycle() {
                             throw std::runtime_error("Unsupported load instruction");
                     }
                 } else if(id_decoded.opcode == Opcodes::OP_IMM) {
+                    stats.iTypeAluCount++;
                     regFile.write(id_decoded.rd, alu_result.value);
                 } else if (id_decoded.opcode == Opcodes::JALR) {
+                    stats.jumpCount++;
+                    stats.totalJumps++;
+                    stats.jalrCount++;
                     regFile.write(id_decoded.rd, pc + 4);
                     pc = alu_result.value & ~1u;
                     continue;
@@ -141,6 +157,8 @@ void CPU::runSingleCycle() {
 //--------------------------------------------------------------------------------------
 
             case InstrType::S:
+                stats.storeCount++;
+                stats.memoryWrites++;
                 aluop = MapToALU(id_decoded.funct3, id_decoded.funct7, id_decoded.opcode);
                 alu_result = alu.execute(aluop, regFile.read(id_decoded.rs1), id_decoded.imm);
                 switch (id_decoded.funct3) {
@@ -161,58 +179,53 @@ void CPU::runSingleCycle() {
 
 //--------------------------------------------------------------------------------------
 
-            case InstrType::B:
+            case InstrType::B: {
+                stats.branchCount++;
+                stats.totalBranches++;
                 aluop = MapToALU(id_decoded.funct3, id_decoded.funct7, id_decoded.opcode);
                 alu_result = alu.execute(aluop, regFile.read(id_decoded.rs1), regFile.read(id_decoded.rs2));
+                bool taken = false;
                 switch (id_decoded.funct3) {
                     case 0x0: // BEQ
-                        if (alu_result.zero) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = alu_result.zero;
                         break;
                     case 0x1: // BNE
-                        if (!alu_result.zero) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = !alu_result.zero;
                         break;
                     case 0x4: // BLT
-                        if (static_cast<int32_t>(regFile.read(id_decoded.rs1)) < static_cast<int32_t>(regFile.read(id_decoded.rs2))) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = (static_cast<int32_t>(regFile.read(id_decoded.rs1)) < static_cast<int32_t>(regFile.read(id_decoded.rs2)));
                         break;
                     case 0x5: // BGE
-                        if (static_cast<int32_t>(regFile.read(id_decoded.rs1)) >= static_cast<int32_t>(regFile.read(id_decoded.rs2))) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = (static_cast<int32_t>(regFile.read(id_decoded.rs1)) >= static_cast<int32_t>(regFile.read(id_decoded.rs2)));
                         break;
                     case 0x6: // BLTU
-                        if (regFile.read(id_decoded.rs1) < regFile.read(id_decoded.rs2)) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = (regFile.read(id_decoded.rs1) < regFile.read(id_decoded.rs2));
                         break;
                     case 0x7: // BGEU
-                        if (regFile.read(id_decoded.rs1) >= regFile.read(id_decoded.rs2)) {
-                            pc += id_decoded.imm;
-                            continue;
-                        }
+                        taken = (regFile.read(id_decoded.rs1) >= regFile.read(id_decoded.rs2));
                         break;
                     default:
                         throw std::runtime_error("Unsupported branch instruction");
                 }
+                if (taken) {
+                    stats.branchesTaken++;
+                    pc += id_decoded.imm;
+                    continue;
+                } else {
+                    stats.branchesNotTaken++;
+                }
                 pc += 4;
                 break;
+            }
 
 //--------------------------------------------------------------------------------------
 
             case InstrType::U:               
                 if (id_decoded.opcode == Opcodes::LUI) { // LUI
+                    stats.luiCount++;
                     regFile.write(id_decoded.rd, id_decoded.imm);
                 } else if (id_decoded.opcode == Opcodes::AUIPC) { // AUIPC
+                    stats.auipcCount++;
                     regFile.write(id_decoded.rd, pc + id_decoded.imm);
                 } else {
                     throw std::runtime_error("Unsupported U-type instruction");
@@ -223,6 +236,9 @@ void CPU::runSingleCycle() {
 //--------------------------------------------------------------------------------------
 
             case InstrType::J:
+                stats.jumpCount++;
+                stats.totalJumps++;
+                stats.jalCount++;
                 alu_result = alu.execute(ALUOp::ADD, pc, id_decoded.imm);
                 regFile.write(id_decoded.rd, pc + 4);
                 pc = alu_result.value;
@@ -231,6 +247,7 @@ void CPU::runSingleCycle() {
 //--------------------------------------------------------------------------------------
 
             case InstrType::SYSTEM:
+                stats.systemCount++;
                 if (id_decoded.funct3 == 0x0 && (id_decoded.imm == 0x000 || id_decoded.imm == 0x001)) {
                     halted = true;
                 } else {
@@ -245,10 +262,115 @@ void CPU::runSingleCycle() {
 
 //======================================================================================================================
 
-void CPU::printStats() {
+void CPU::printStats() const {
     regFile.dump();
-    std::cout << "Final PC: 0x" << std::hex << pc << std::endl;
-    std::cout << "Total cycles executed: " << std::dec << cycleCount << std::endl;
+
+    auto percent = [](uint64_t part, uint64_t total) -> double {
+        return total > 0 ? (static_cast<double>(part) * 100.0 / static_cast<double>(total)) : 0.0;
+    };
+
+    double cpi = stats.instructionsRetired > 0 ? static_cast<double>(cycleCount) / static_cast<double>(stats.instructionsRetired) : 0.0;
+    double ipc = cycleCount > 0 ? static_cast<double>(stats.instructionsRetired) / static_cast<double>(cycleCount) : 0.0;
+
+    std::cout << "\n";
+    std::cout << "============================================================\n";
+    std::cout << "              EXECUTION & PIPELINE STATISTICS               \n";
+    std::cout << "============================================================\n";
+    std::cout << std::left << std::setw(32) << "Simulation Mode:" 
+              << (stats.mode == RunMode::Pipelined ? "Pipelined (5-Stage)" : "Single-Cycle") << "\n";
+    
+    std::stringstream pc_ss;
+    pc_ss << "0x" << std::hex << pc;
+    std::cout << std::left << std::setw(32) << "Final Program Counter (PC):" << pc_ss.str() << "\n";
+    std::cout << std::left << std::setw(32) << "Total Cycles Executed:" << std::dec << cycleCount << "\n";
+    std::cout << std::left << std::setw(32) << "Instructions Retired:" << stats.instructionsRetired << "\n";
+    
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << std::left << std::setw(32) << "Cycles Per Instruction (CPI):" << cpi << "\n";
+    std::cout << std::left << std::setw(32) << "Instructions Per Cycle (IPC):" << ipc << "\n";
+
+    std::cout << std::fixed << std::setprecision(2);
+
+    if (stats.mode == RunMode::Pipelined) {
+        uint64_t flushCycles = stats.flushCount * 2;
+        uint64_t totalPenalty = stats.stallCycles + flushCycles;
+
+        std::cout << "\n------------------------------------------------------------\n";
+        std::cout << "                PIPELINE HAZARDS & OVERHEAD                 \n";
+        std::cout << "------------------------------------------------------------\n";
+        std::cout << std::left << std::setw(32) << "Load-Use Data Stalls:" 
+                  << stats.stallCycles << " cycle" << (stats.stallCycles == 1 ? "" : "s") 
+                  << " (" << percent(stats.stallCycles, cycleCount) << "% of total cycles)\n";
+        std::cout << std::left << std::setw(32) << "  - Load-Use Hazard Events:" << stats.loadUseHazards << "\n";
+
+        std::cout << std::left << std::setw(32) << "Control Hazard Flushes:" 
+                  << stats.flushCount << " flush" << (stats.flushCount == 1 ? "" : "es") 
+                  << " (" << flushCycles << " penalty cycles, " 
+                  << percent(flushCycles, cycleCount) << "% of cycles)\n";
+        std::cout << std::left << std::setw(32) << "  - Branch Flushes (Taken):" << stats.branchFlushes << "\n";
+        std::cout << std::left << std::setw(32) << "  - Jump Flushes (JAL/JALR):" << stats.jumpFlushes << "\n";
+
+        std::cout << std::left << std::setw(32) << "Total Pipeline Penalty:" 
+                  << totalPenalty << " cycles (" << percent(totalPenalty, cycleCount) << "% overhead)\n";
+
+        std::cout << "\n------------------------------------------------------------\n";
+        std::cout << "                   DATA FORWARDING PATHS                    \n";
+        std::cout << "------------------------------------------------------------\n";
+        std::cout << std::left << std::setw(32) << "Total Forwarding Events:" << stats.totalForwards << "\n";
+        std::cout << std::left << std::setw(32) << "  - EX/MEM -> EX (1-Cycle RAW):" 
+                  << stats.fwdFromEXMEM << " (" << percent(stats.fwdFromEXMEM, stats.totalForwards) << "%)\n";
+        std::cout << std::left << std::setw(32) << "  - MEM/WB -> EX (2-Cycle RAW):" 
+                  << stats.fwdFromMEMWB << " (" << percent(stats.fwdFromMEMWB, stats.totalForwards) << "%)\n";
+        std::cout << std::left << std::setw(32) << "Forwarded Operands:" << "\n";
+        std::cout << std::left << std::setw(32) << "  - rs1 Operands Forwarded:" 
+                  << stats.fwdRs1 << " (" << percent(stats.fwdRs1, stats.totalForwards) << "%)\n";
+        std::cout << std::left << std::setw(32) << "  - rs2 Operands Forwarded:" 
+                  << stats.fwdRs2 << " (" << percent(stats.fwdRs2, stats.totalForwards) << "%)\n";
+    }
+
+    std::cout << "\n------------------------------------------------------------\n";
+    std::cout << "                  CONTROL FLOW & BRANCHES                   \n";
+    std::cout << "------------------------------------------------------------\n";
+    std::cout << std::left << std::setw(32) << "Total Conditional Branches:" << stats.totalBranches << "\n";
+    std::cout << std::left << std::setw(32) << "  - Branches Taken:" 
+              << stats.branchesTaken << " (" << percent(stats.branchesTaken, stats.totalBranches) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Branches Not Taken:" 
+              << stats.branchesNotTaken << " (" << percent(stats.branchesNotTaken, stats.totalBranches) << "%)\n";
+    std::cout << std::left << std::setw(32) << "Total Unconditional Jumps:" 
+              << stats.totalJumps << " (JAL: " << stats.jalCount << ", JALR: " << stats.jalrCount << ")\n";
+
+    uint64_t totalMemOps = stats.memoryReads + stats.memoryWrites;
+    std::cout << "\n------------------------------------------------------------\n";
+    std::cout << "                  MEMORY ACCESS STATISTICS                  \n";
+    std::cout << "------------------------------------------------------------\n";
+    std::cout << std::left << std::setw(32) << "Total Memory Operations:" << totalMemOps << "\n";
+    std::cout << std::left << std::setw(32) << "  - Data Loads (Reads):" 
+              << stats.memoryReads << " (" << percent(stats.memoryReads, totalMemOps) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Data Stores (Writes):" 
+              << stats.memoryWrites << " (" << percent(stats.memoryWrites, totalMemOps) << "%)\n";
+
+    uint64_t upperImmTotal = stats.luiCount + stats.auipcCount;
+    std::cout << "\n------------------------------------------------------------\n";
+    std::cout << "                   INSTRUCTION MIX & ISA                    \n";
+    std::cout << "------------------------------------------------------------\n";
+    std::cout << std::left << std::setw(32) << "Total Instructions Retired:" << stats.instructionsRetired << "\n";
+    std::cout << std::left << std::setw(32) << "  - R-Type (Register ALU):" 
+              << stats.rTypeCount << " (" << percent(stats.rTypeCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - I-Type (Immediate ALU):" 
+              << stats.iTypeAluCount << " (" << percent(stats.iTypeAluCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Load Instructions:" 
+              << stats.loadCount << " (" << percent(stats.loadCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Store Instructions:" 
+              << stats.storeCount << " (" << percent(stats.storeCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Conditional Branches:" 
+              << stats.branchCount << " (" << percent(stats.branchCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Unconditional Jumps:" 
+              << stats.jumpCount << " (" << percent(stats.jumpCount, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - Upper Immediate (LUI/AUIPC):" 
+              << upperImmTotal << " (" << percent(upperImmTotal, stats.instructionsRetired) << "%)\n";
+    std::cout << std::left << std::setw(32) << "  - System & Control (ECALL/FENCE):" 
+              << stats.systemCount << " (" << percent(stats.systemCount, stats.instructionsRetired) << "%)\n";
+    std::cout << "============================================================\n";
 }
 
 ALUOp CPU::MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode) {
@@ -379,6 +501,8 @@ void CPU::stageID(){
         halted = true;
         ifid.valid = false;
         idex.valid = false;
+        stats.instructionsRetired++;
+        stats.systemCount++;
     }
 }
 
@@ -391,6 +515,26 @@ void CPU::stageEX(){
     }
 
     ForwardedData fwd = forwardingUnit.forward(idex, exmem, memwb);
+
+    if (fwd.rs1_source == ForwardSource::EX_MEM) {
+        stats.totalForwards++;
+        stats.fwdFromEXMEM++;
+        stats.fwdRs1++;
+    } else if (fwd.rs1_source == ForwardSource::MEM_WB) {
+        stats.totalForwards++;
+        stats.fwdFromMEMWB++;
+        stats.fwdRs1++;
+    }
+
+    if (fwd.rs2_source == ForwardSource::EX_MEM) {
+        stats.totalForwards++;
+        stats.fwdFromEXMEM++;
+        stats.fwdRs2++;
+    } else if (fwd.rs2_source == ForwardSource::MEM_WB) {
+        stats.totalForwards++;
+        stats.fwdFromMEMWB++;
+        stats.fwdRs2++;
+    }
 
     uint32_t rs1_val = fwd.rs1_val;
     uint32_t rs2_val = fwd.rs2_val;
@@ -416,8 +560,6 @@ void CPU::stageEX(){
         alu_b = static_cast<uint32_t>(idex.decoded.imm);
     }
 
-    // added onlyfor testing std::cout << "stageEX: opcode=0x" << std::hex << op << std::endl;
-
     ALUOp aluop = MapToALU(idex.decoded.funct3, idex.decoded.funct7, op);
     ALUResult alu_result = alu.execute(aluop, alu_a, alu_b);
 
@@ -425,6 +567,7 @@ void CPU::stageEX(){
     uint32_t pc_next = idex.pc + 4;
 
     if (op == Opcodes::BRANCH) {
+        stats.totalBranches++;
         uint32_t r1 = rs1_val;
         uint32_t r2 = rs2_val;
         uint32_t branch_target = idex.pc + static_cast<uint32_t>(idex.decoded.imm);
@@ -438,22 +581,30 @@ void CPU::stageEX(){
             case 0x7: branch_taken = (r1 >= r2); break;                                              // BGEU
         }
 
-        if (branch_taken) pc_next = branch_target;
+        if (branch_taken) {
+            pc_next = branch_target;
+            stats.branchesTaken++;
+            stats.branchFlushes++;
+        } else {
+            stats.branchesNotTaken++;
+        }
     }
 
-    /*  used for branch debugging
-    if (op == Opcodes::BRANCH) {
-    std::cout << "BRANCH at pc=0x" << std::hex << idex.pc 
-              << " r1=" << std::dec << rs1_val 
-              << " r2=" << rs2_val 
-              << " taken=" << branch_taken << std::endl;
+    if (op == Opcodes::JAL) {
+        pc_next = alu_result.value;
+        stats.totalJumps++;
+        stats.jalCount++;
+        stats.jumpFlushes++;
+    }
+    if (op == Opcodes::JALR) {
+        pc_next = alu_result.value & ~1u;
+        stats.totalJumps++;
+        stats.jalrCount++;
+        stats.jumpFlushes++;
     }
 
-    */
-
-    if (op == Opcodes::JAL)  pc_next = alu_result.value;
-    if (op == Opcodes::JALR) pc_next = alu_result.value & ~1u;
-
+    exmem.decoded      = idex.decoded;
+    exmem.pc           = idex.pc;
     exmem.alu_result   = alu_result.value;
     exmem.rs2_val      = rs2_val;           // needed by SW in MEM stage
     exmem.rd           = idex.decoded.rd;
@@ -465,7 +616,7 @@ void CPU::stageEX(){
 
     exmem.reg_write    = (op != Opcodes::STORE && 
                           op != Opcodes::BRANCH && 
-                          op != Opcodes::SYSTEM &&
+                          op != Opcodes::SYSTEM && 
                           op != Opcodes::FENCE);
 
     exmem.valid        = true;
@@ -488,9 +639,12 @@ void CPU::stageMEM(){
         return;
     }
 
+    memwb.decoded = exmem.decoded;
+    memwb.pc = exmem.pc;
     memwb.result = exmem.alu_result;
 
     if(exmem.mem_read) {
+        stats.memoryReads++;
         switch (exmem.funct3) {
             case 0x0: // LB
                 memwb.result = static_cast<int32_t>(static_cast<int8_t>(memory.loadByte(exmem.alu_result)));
@@ -513,6 +667,7 @@ void CPU::stageMEM(){
     }
 
     if(exmem.mem_write) {
+        stats.memoryWrites++;
         switch (exmem.funct3) {
             case 0x0: // SB
                 memory.storeByte(exmem.alu_result, static_cast<uint8_t>(exmem.rs2_val & 0xFF));
@@ -538,7 +693,49 @@ void CPU::stageMEM(){
 //------------------------------------------------------------------------------------
 
 void CPU::stageWB(){
-    if (memwb.valid && memwb.reg_write) regFile.write(memwb.rd, memwb.result);
+    if (!memwb.valid) return;
+
+    if (memwb.reg_write) {
+        regFile.write(memwb.rd, memwb.result);
+    }
+
+    stats.instructionsRetired++;
+
+    switch (memwb.decoded.type) {
+        case InstrType::R:
+            stats.rTypeCount++;
+            break;
+        case InstrType::I:
+            if (memwb.decoded.opcode == Opcodes::LOAD) {
+                stats.loadCount++;
+            } else if (memwb.decoded.opcode == Opcodes::OP_IMM) {
+                stats.iTypeAluCount++;
+            } else if (memwb.decoded.opcode == Opcodes::JALR) {
+                stats.jumpCount++;
+            } else if (memwb.decoded.opcode == Opcodes::FENCE) {
+                stats.systemCount++;
+            }
+            break;
+        case InstrType::S:
+            stats.storeCount++;
+            break;
+        case InstrType::B:
+            stats.branchCount++;
+            break;
+        case InstrType::U:
+            if (memwb.decoded.opcode == Opcodes::LUI) {
+                stats.luiCount++;
+            } else if (memwb.decoded.opcode == Opcodes::AUIPC) {
+                stats.auipcCount++;
+            }
+            break;
+        case InstrType::J:
+            stats.jumpCount++;
+            break;
+        case InstrType::SYSTEM:
+            stats.systemCount++;
+            break;
+    }
 }
 
 //-----------------------------------------------------------------------------------

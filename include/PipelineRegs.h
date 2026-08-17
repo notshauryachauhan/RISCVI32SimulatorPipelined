@@ -33,6 +33,8 @@ struct IDEX {
 };
 
 struct EXMEM {
+    Instruction decoded {};
+    uint32_t pc = 0;
     uint32_t alu_result = 0;
     uint32_t rs2_val = 0;
     uint32_t rd = 0;
@@ -45,6 +47,8 @@ struct EXMEM {
     bool valid = false;
 
     void reset(){
+        decoded = Instruction{};
+        pc = 0;
         alu_result = 0;
         rs2_val = 0;
         rd = 0;
@@ -59,12 +63,16 @@ struct EXMEM {
 };
 
 struct MEMWB {
+    Instruction decoded {};
+    uint32_t pc = 0;
     uint32_t result = 0;
     uint32_t rd = 0;
     bool reg_write = false;
     bool valid = false;
 
     void reset(){
+        decoded = Instruction{};
+        pc = 0;
         result = 0;
         rd = 0;
         reg_write = false;

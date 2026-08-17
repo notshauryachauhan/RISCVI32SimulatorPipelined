@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "ALU.h"
 #include "Decoder.h"
@@ -10,11 +11,7 @@
 #include "PipelineRegs.h"
 #include "HazardDetector.h"
 #include "ForwardingUnit.h"
-
-enum class RunMode {
-    SingleCycle,
-    Pipelined
-};
+#include "CPUStats.h"
 
 class CPU {
 
@@ -22,7 +19,8 @@ class CPU {
         CPU();
         void loadProgram(const std::string& filename);
         void startSimulation(RunMode mode);
-        void printStats();
+        void printStats() const;
+        const CPUStats& getStats() const { return stats; }
 
     private:
         ALU alu;
@@ -39,6 +37,9 @@ class CPU {
         uint64_t cycleCount {0};
 
         bool halted;
+        bool stalled;
+
+        CPUStats stats;
 
         ALUOp MapToALU(uint32_t funct3, uint32_t funct7, uint32_t opcode);
 
@@ -50,8 +51,6 @@ class CPU {
         void stageEX();
         void stageMEM();
         void stageWB();
-
-        bool stalled;
 
         HazardDetector hazarddetector;
         ForwardingUnit forwardingUnit;

@@ -51,6 +51,7 @@ Supports both **Single-Cycle** and **5-Stage Pipelined** execution modes in a si
 - **Bubble Propagation**: Pipeline register `valid` flags propagate pipeline bubbles cleanly without artificial NOP injections.
 - **Memory System**: 64KB byte-addressable, little-endian data memory supporting byte, halfword, and word operations.
 - **Register File**: 32 standard 32-bit registers with hardwired `x0 = 0` and formatted register dump reporting ABI names, hexadecimal, and decimal values.
+- **Comprehensive Architectural Statistics**: Real-time reporting of CPI, IPC, load-use data stalls, branch/jump flushes, forwarding events by path (EX/MEM vs MEM/WB) and operand (`rs1`/`rs2`), branch taken rates, memory operations, and full ISA instruction mix.
 
 ---
 
@@ -64,6 +65,7 @@ RISCVI32SimulatorPipelined/
 ├── include/
 │   ├── ALU.h                  # ALU declarations & operations
 │   ├── CPU.h                  # Top-level CPU core & pipeline controller
+│   ├── CPUStats.h             # Execution, pipeline hazard, and forwarding statistics
 │   ├── Decoder.h              # Instruction decoder & immediate sign extension
 │   ├── ForwardingUnit.h       # Dual-path operand forwarding unit
 │   ├── HazardDetector.h       # Load-use stall & branch flush detector
@@ -149,6 +151,73 @@ Both execution modes produce 100% identical final register file states. Cycle co
 | `test.bin` | Pipelined | `1` (0x01) ✓ | 12 | Load forwarding and taken branch flushing |
 | `comprehensive_test.bin` | SingleCycle | `0xCAFE0009` ✓ | 342 | Full RV32I ISA, hazards, memory, & checksum stress test |
 | `comprehensive_test.bin` | Pipelined | `0xCAFE0009` ✓ | 409 | 9/9 sections passed, 0 failures, verified checksum 888 |
+
+---
+
+## Simulation Output & Statistics
+
+Upon program completion, the simulator outputs the architectural register file state followed by detailed performance, hazard, forwarding, and ISA statistics:
+
+```
+============================================================
+              EXECUTION & PIPELINE STATISTICS               
+============================================================
+Simulation Mode:                Pipelined (5-Stage)
+Final Program Counter (PC):     0x24c
+Total Cycles Executed:          409
+Instructions Retired:           342
+Cycles Per Instruction (CPI):   1.196
+Instructions Per Cycle (IPC):   0.836
+
+------------------------------------------------------------
+                PIPELINE HAZARDS & OVERHEAD                 
+------------------------------------------------------------
+Load-Use Data Stalls:           17 cycles (4.16% of total cycles)
+  - Load-Use Hazard Events:     17
+Control Hazard Flushes:         47 flushes (94 penalty cycles, 22.98% of cycles)
+  - Branch Flushes (Taken):     36
+  - Jump Flushes (JAL/JALR):    11
+Total Pipeline Penalty:         111 cycles (27.14% overhead)
+
+------------------------------------------------------------
+                   DATA FORWARDING PATHS                    
+------------------------------------------------------------
+Total Forwarding Events:        191
+  - EX/MEM -> EX (1-Cycle RAW): 158 (82.72%)
+  - MEM/WB -> EX (2-Cycle RAW): 33 (17.28%)
+Forwarded Operands:             
+  - rs1 Operands Forwarded:     109 (57.07%)
+  - rs2 Operands Forwarded:     82 (42.93%)
+
+------------------------------------------------------------
+                  CONTROL FLOW & BRANCHES                   
+------------------------------------------------------------
+Total Conditional Branches:     59
+  - Branches Taken:             36 (61.02%)
+  - Branches Not Taken:         23 (38.98%)
+Total Unconditional Jumps:      11 (JAL: 10, JALR: 1)
+
+------------------------------------------------------------
+                  MEMORY ACCESS STATISTICS                  
+------------------------------------------------------------
+Total Memory Operations:        40
+  - Data Loads (Reads):         21 (52.50%)
+  - Data Stores (Writes):       19 (47.50%)
+
+------------------------------------------------------------
+                   INSTRUCTION MIX & ISA                    
+------------------------------------------------------------
+Total Instructions Retired:     342
+  - R-Type (Register ALU):      75 (21.93%)
+  - I-Type (Immediate ALU):     150 (43.86%)
+  - Load Instructions:          21 (6.14%)
+  - Store Instructions:         19 (5.56%)
+  - Conditional Branches:       59 (17.25%)
+  - Unconditional Jumps:        11 (3.22%)
+  - Upper Immediate (LUI/AUIPC):5 (1.46%)
+  - System & Control (ECALL/FENCE):2 (0.58%)
+============================================================
+```
 
 ---
 
