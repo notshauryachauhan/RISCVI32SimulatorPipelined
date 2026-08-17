@@ -147,6 +147,8 @@ Both execution modes produce 100% identical final register file states. Cycle co
 | `load_hazard_test.bin` | Pipelined | — | 9 | 1 stall cycle inserted + 4 pipeline drain cycles |
 | `test.bin` | SingleCycle | `1` (0x01) ✓ | 6 | Memory store-load consistency & branch |
 | `test.bin` | Pipelined | `1` (0x01) ✓ | 12 | Load forwarding and taken branch flushing |
+| `comprehensive_test.bin` | SingleCycle | `0xCAFE0009` ✓ | 342 | Full RV32I ISA, hazards, memory, & checksum stress test |
+| `comprehensive_test.bin` | Pipelined | `0xCAFE0009` ✓ | 409 | 9/9 sections passed, 0 failures, verified checksum 888 |
 
 ---
 
